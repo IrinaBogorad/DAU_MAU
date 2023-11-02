@@ -1,0 +1,6 @@
+{
+  "name": "DAUMAU_US",
+  "dependencies": {
+    "@dataform/core": "2.4.2"
+  }
+}

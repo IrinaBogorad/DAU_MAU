@@ -1,0 +1,53 @@
+config {type:"operations"}
+
+
+/*Let`s preprocessing data. We have tables  from 2018-06-12 to 2018-10-03
+
+SELECT MAX(event_date), MIN(event_date) FROM `firebase-public-project.analytics_153293282.events_*`;
+*/
+
+--To create relevant values of MAU (monthly active users) we can start from 2018-07-01 to 2018-08-31 
+--We`ve checked important columns. There are no NULL values except column event_previous_timestamp, and we put a condition in a query. 
+
+WITH clean_events AS(
+SELECT 
+  event_date,
+  platform, 
+  geo.country,
+  geo.continent,
+  user_pseudo_id,
+  event_timestamp,
+  event_previous_timestamp,
+  user_first_touch_timestamp 
+FROM ${ref("events_*")}
+WHERE (event_timestamp BETWEEN 1530471600000000 AND  1538420400000000) AND
+               event_previous_timestamp IS NOT NULL
+ORDER BY event_timestamp ASC),
+
+--Put flags to find dublicates
+    dup_events AS(
+  
+        SELECT *,
+        ROW_NUMBER() OVER(PARTITION BY event_timestamp ORDER BY event_timestamp) flag_dup
+        FROM clean_events),
+ 
+--We have 214 duplicates, these are not  serious numbers and we can ignore them. But let`s show how we behave in an opposite situation.
+--The result- Clean data  4 541 995 rows 
+cleansed_set AS(
+  SELECT * 
+  FROM dup_events
+  WHERE flag_dup=1
+  ORDER BY event_date)
+
+SELECT
+  event_date,
+  CAST(SUBSTR(event_date,5,2) AS INT64) AS month,
+  platform,
+  country,
+  continent,
+  user_pseudo_id,
+  event_timestamp,
+  event_previous_timestamp,
+  user_first_touch_timestamp
+  FROM cleansed_set
+ORDER BY event_timestamp ASC;
