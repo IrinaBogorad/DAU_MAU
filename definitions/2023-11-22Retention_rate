@@ -1,0 +1,124 @@
+config {type:"operations"}
+
+DECLARE startdate TIMESTAMP DEFAULT "2018-10-03 00:00:00 UTC";
+DECLARE NDAYS INT64 DEFAULT 30;
+
+--Make indexed table to speed up the process of joining counting retention rate
+/*
+CREATE TABLE test-data-floodit.test1.t1
+PARTITION BY DATE(day)
+CLUSTER BY user_pseudo_id
+OPTIONS(description="Implementing retention analysis", require_partition_filter=true)
+AS (SELECT TIMESTAMP_TRUNC(TIMESTAMP_MICROS(event_timestamp),DAY) day, user_pseudo_id
+  FROM  ${ref("events_*")})
+;
+*/
+
+
+-- Create table with column for each day from the last day(startday)
+WITH data AS(
+SELECT *
+  FROM `test-data-floodit.test1.t1`
+WHERE  day<=startdate
+GROUP BY day,user_pseudo_id
+ORDER BY day ASC
+),
+
+--Create set with data in respect that we need first 30 days for the first date, to reflect data correctly
+daysN AS(
+
+SELECT *, EXTRACT(MONTH FROM day) m FROM data
+WHERE day>=DATE_ADD(STARTDATE, INTERVAL-76 DAY)
+GROUP BY day,user_pseudo_id
+ORDER BY day ASC -- 19.07  stopday
+),
+
+--Create table including whole range of analysing data
+days60 AS(
+  SELECT *, EXTRACT(MONTH FROM day) m FROM data
+  WHERE day>=DATE_ADD(STARTDATE, INTERVAL -106 DAY)
+  GROUP BY day,user_pseudo_id
+ORDER BY day ASC
+),
+
+--Set of final range of data
+stopdays AS(
+  SELECT DISTINCT DATE_TRUNC(day,DAY) stopday FROM data
+ WHERE day>=DATE_ADD(STARTDATE, INTERVAL-76 DAY)
+ GROUP BY stopday,user_pseudo_id
+ORDER BY stopday ASC
+),
+
+--Find MAU
+maus AS(
+  SELECT stopday,COUNT(DISTINCT(d6.user_pseudo_id)) AS mau
+  FROM days60 as d6 
+  JOIN stopdays
+  ON day 
+  BETWEEN DATE_ADD(stopday , INTERVAL -NDAYS DAY) AND stopday 
+  GROUP BY stopday
+ ),
+
+
+ prep_maus AS (
+  SELECT stopday, LAG (mau,NDAYS,NULL)OVER(ORDER BY stopday) as l_mau
+  FROM maus AS m 
+ 
+ ),
+
+--Find MAU_LAG and MOM growth rate
+mau_with_lag AS(
+ SELECT maus.stopday stopday, maus.mau mau,prep_maus.l_mau l_mau, 
+ ROUND(CAST((mau-l_mau)/l_mau AS FLOAT64),2) AS growth
+ FROM maus
+ LEFT JOIN prep_maus
+ ON maus.stopday=prep_maus.stopday
+ ORDER BY maus.stopday
+
+)
+,
+
+--Find users in curent month that were active in previous
+uc as(
+SELECT curent.m as m, 
+       COUNT(DISTINCT(curent.user_pseudo_id)) as uc_param
+FROM days60 as curent
+INNER JOIN days60 as previous
+ON previous.user_pseudo_id=curent.user_pseudo_id AND previous.m=curent.m-1
+GROUP BY curent.m
+ORDER BY curent.m ASC
+)
+,
+
+-- Find active users current month
+up as(
+SELECT m,
+      COUNT(DISTINCT(user_pseudo_id)) as up_param
+FROM days60 as d60
+GROUP BY m 
+ORDER BY m ASC
+)
+,
+-- Find retention rate dividing  UC/UP
+ret_rate AS(
+  SELECT uc.m,uc.uc_param,up.up_param,ROUND(COALESCE(uc.uc_param/up.up_param,1),2) ret_rate_param
+  FROM up
+  JOIN uc
+  ON up.m=uc.m-1
+  ORDER BY up.m
+)
+
+             
+
+-- Find DAU and DAU/MAU, retention_rate
+ SELECT day, dau, mausers,ROUND(dau/mausers,2) daumau,growthrate, retentionrate
+ FROM (
+  SELECT day, COUNT(DISTINCT user_pseudo_id) dau,
+  (SELECT mau FROM mau_with_lag WHERE a.day=mau_with_lag.stopday) mausers,
+  (SELECT growth FROM mau_with_lag WHERE a.day=mau_with_lag.stopday AND a.day=mau_with_lag.stopday) growthrate,
+  (SELECT ret_rate_param FROM ret_rate WHERE (EXTRACT(MONTH FROM a.day))=ret_rate.m) as retentionrate
+  FROM daysN a
+  GROUP BY day
+ )
+ ORDER BY day ASC;
+ 
