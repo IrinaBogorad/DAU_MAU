@@ -7,7 +7,7 @@ DECLARE NDAYS INT64 DEFAULT 30;
 WITH data AS(
 SELECT * FROM(
   SELECT *,PARSE_DATE('%Y%m%d',_TABLE_SUFFIX) day
-  FROM ${ref("events_*")}) 
+  FROM ${ref('events_*')}) 
 WHERE  day<=startdate),
 
 --Create set with data in respect that we need first 30 days for the first date, to reflect data correctly
