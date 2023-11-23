@@ -1,4 +1,5 @@
-config {type:"operations"}
+config {type:"operations",
+        schema:"dataform_sources"}
 
 
 /*Let`s preprocessing data. We have tables  from 2018-06-12 to 2018-10-03
