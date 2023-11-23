@@ -63,7 +63,7 @@ mau_with_lag AS(
   SELECT day, COUNT(DISTINCT user_pseudo_id) dau,
   (SELECT mau FROM mau_with_lag WHERE a.day=mau_with_lag.stopday) mausers,
   (SELECT growth FROM mau_with_lag WHERE a.day=mau_with_lag.stopday) growthrate
-  --(SELECT retention FROM retention_rate WHERE a.day=retention_rate.r_day)as retentionrate
+
   FROM daysN a
   GROUP BY day
  )
