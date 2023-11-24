@@ -14,20 +14,10 @@ AS (SELECT TIMESTAMP_TRUNC(TIMESTAMP_MICROS(event_timestamp),DAY) day, user_pseu
 ;
 */
 
-
--- Create table with column for each day from the last day(startday)
-WITH data AS(
-SELECT *
-  FROM `test-data-floodit.test1.t1`
-WHERE  day<=startdate
-GROUP BY day,user_pseudo_id
-ORDER BY day ASC
-),
-
 --Create set with data in respect that we need first 30 days for the first date, to reflect data correctly
 daysN AS(
 
-SELECT *, EXTRACT(MONTH FROM day) m FROM data
+SELECT *, EXTRACT(MONTH FROM day) m  FROM data
 WHERE day>=DATE_ADD(STARTDATE, INTERVAL-76 DAY)
 GROUP BY day,user_pseudo_id
 ORDER BY day ASC -- 19.07  stopday
@@ -35,7 +25,7 @@ ORDER BY day ASC -- 19.07  stopday
 
 --Create table including whole range of analysing data
 days60 AS(
-  SELECT *, EXTRACT(MONTH FROM day) m FROM data
+  SELECT *, EXTRACT(MONTH FROM day) m  FROM data
   WHERE day>=DATE_ADD(STARTDATE, INTERVAL -106 DAY)
   GROUP BY day,user_pseudo_id
 ORDER BY day ASC
@@ -49,7 +39,7 @@ stopdays AS(
 ORDER BY stopday ASC
 ),
 
---Find MAU
+--Find MAU monthly active users
 maus AS(
   SELECT stopday,COUNT(DISTINCT(d6.user_pseudo_id)) AS mau
   FROM days60 as d6 
@@ -60,25 +50,7 @@ maus AS(
  ),
 
 
- prep_maus AS (
-  SELECT stopday, LAG (mau,NDAYS,NULL)OVER(ORDER BY stopday) as l_mau
-  FROM maus AS m 
- 
- ),
-
---Find MAU_LAG and MOM growth rate
-mau_with_lag AS(
- SELECT maus.stopday stopday, maus.mau mau,prep_maus.l_mau l_mau, 
- ROUND(CAST((mau-l_mau)/l_mau AS FLOAT64),2) AS growth
- FROM maus
- LEFT JOIN prep_maus
- ON maus.stopday=prep_maus.stopday
- ORDER BY maus.stopday
-
-)
-,
-
---Find users in curent month that were active in previous
+--Find monthly active users were active along 30 days week ago
 uc as(
 SELECT curent.m as m, 
        COUNT(DISTINCT(curent.user_pseudo_id)) as uc_param
@@ -87,19 +59,19 @@ INNER JOIN days60 as previous
 ON previous.user_pseudo_id=curent.user_pseudo_id AND previous.m=curent.m-1
 GROUP BY curent.m
 ORDER BY curent.m ASC
-)
-,
+),
 
--- Find active users current month
+-- Find active users current week
 up as(
 SELECT m,
       COUNT(DISTINCT(user_pseudo_id)) as up_param
 FROM days60 as d60
-GROUP BY m 
+GROUP BY m  
 ORDER BY m ASC
 )
 ,
--- Find retention rate dividing  UC/UP
+-- Find retention rate dividing  UC/UP. 
+--Take an account that RR of July and October have no value(ignore them) because of days quantity, in those months they are incomplete.
 ret_rate AS(
   SELECT uc.m,uc.uc_param,up.up_param,ROUND(COALESCE(uc.uc_param/up.up_param,1),2) ret_rate_param
   FROM up
@@ -107,18 +79,24 @@ ret_rate AS(
   ON up.m=uc.m-1
   ORDER BY up.m
 )
-
+,
+growth_rate_month as (
+  SELECT curent.m m,ROUND((curent.up_param-previous.up_param)/previous.up_param,2)  as growth_rate
+  FROM up previous
+  JOIN up curent
+  ON previous.m=curent.m-1
+  ORDER BY curent.m
+)
              
 
--- Find DAU and DAU/MAU, retention_rate
- SELECT day, dau, mausers,ROUND(dau/mausers,2) daumau,growthrate, retentionrate
+-- Find DAU and DAU/MAU, retention_rate in a month-over-month, growth rate week-over-week
+ SELECT day, dau, mausers,ROUND(dau/mausers,2) daumau, retentionrate_month, gr_r_month
  FROM (
   SELECT day, COUNT(DISTINCT user_pseudo_id) dau,
-  (SELECT mau FROM mau_with_lag WHERE a.day=mau_with_lag.stopday) mausers,
-  (SELECT growth FROM mau_with_lag WHERE a.day=mau_with_lag.stopday AND a.day=mau_with_lag.stopday) growthrate,
-  (SELECT ret_rate_param FROM ret_rate WHERE (EXTRACT(MONTH FROM a.day))=ret_rate.m) as retentionrate
+  (SELECT mau FROM maus WHERE a.day=maus.stopday) mausers,
+  (SELECT ret_rate_param FROM ret_rate WHERE (EXTRACT(MONTH FROM a.day))=ret_rate.m) as retentionrate_month,
+  (SELECT growth_rate FROM growth_rate_month WHERE (EXTRACT(MONTH FROM a.day))=growth_rate_month.m) as gr_r_month
   FROM daysN a
   GROUP BY day
  )
  ORDER BY day ASC;
- 
