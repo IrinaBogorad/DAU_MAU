@@ -89,14 +89,14 @@ growth_rate_month as (
 )
              
 
--- Find DAU and DAU/MAU, retention_rate in a month-over-month, growth rate week-over-week
- SELECT day, dau, mausers,ROUND(dau/mausers,2) daumau, retentionrate_month, gr_r_month
- FROM (
-  SELECT day, COUNT(DISTINCT user_pseudo_id) dau,
-  (SELECT mau FROM maus WHERE a.day=maus.stopday) mausers,
-  (SELECT ret_rate_param FROM ret_rate WHERE (EXTRACT(MONTH FROM a.day))=ret_rate.m) as retentionrate_month,
-  (SELECT growth_rate FROM growth_rate_month WHERE (EXTRACT(MONTH FROM a.day))=growth_rate_month.m) as gr_r_month
-  FROM daysN a
-  GROUP BY day
- )
- ORDER BY day ASC;
+-- Find DAU and DAU/MAU, retention_rate in a month-over-month, growth rate 
+ SELECT b.m month,prev_mau,retention_rate_month, growth_rate_month
+ FROM (SELECT a.m,
+      (SELECT up_mau FROM ret_rate WHERE a.m=ret_rate.m-1) as prev_mau,
+      (SELECT ret_rate_param FROM ret_rate WHERE a.m=ret_rate.m) as retention_rate_month,
+      (SELECT growth_rate FROM growth_rate_month WHERE a.m=growth_rate_month.m) as growth_rate_month
+      FROM daysN a
+      GROUP BY a.m
+      ORDER BY a.m
+         ) b
+    ORDER BY m ASC;
