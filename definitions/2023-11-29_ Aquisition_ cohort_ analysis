@@ -1,0 +1,158 @@
+config {type:"operations"}
+
+/* Let`s make aquisition cohort analysis to clear up the retention rate of users after sign up.
+The granularity of analysis will be a week.
+*/
+
+--Make indexed table to speed up the process of joining
+/*
+CREATE TABLE test-data-floodit.test1.t2
+CLUSTER BY user_pseudo_id
+OPTIONS(description="Implementing cohort analysis")
+AS (SELECT        event_date,
+                  platform, 
+                  continent, 
+                  country, 
+                  user_pseudo_id, 
+                  event_timestamp ,
+                  event_previous_timestamp, 
+                  user_first_touch_timestamp,				
+               
+  FROM  ${ref("events_*")})
+;
+*/
+/*
+--
+--A little bit of preprocessed analysis
+--There are 15173 person who are active during the testing period but also including those who signed up earlier.
+SELECT 
+      COUNT(DISTINCT(user_first_touch_timestamp))
+FROM test1.t2
+;
+
+
+
+DECLARE min_date TIMESTAMP DEFAULT '2018-06-12 07:00:10 UTC'; 
+
+-- There are 2915 users returned the day after sign up 
+SELECT 
+           COUNT(DISTINCT(user_pseudo_id))
+FROM test1.t2
+WHERE DATE_DIFF(DATE(TIMESTAMP_MICROS(event_timestamp)), DATE(TIMESTAMP_MICROS(user_first_touch_timestamp)), DAY)>1 AND 
+             TIMESTAMP_MICROS(user_first_touch_timestamp)>= min_date
+;
+
+SELECT 
+           COUNT(user_pseudo_id)
+FROM test1.t2
+WHERE (user_first_touch_timestamp)<=(event_timestamp) AND
+             TIMESTAMP_MICROS(user_first_touch_timestamp)>= min_date
+;
+
+--Quantity of users  signed up  after 2018-06-12 is 6066
+SELECT 
+      COUNT(DISTINCT(user_first_touch_timestamp))
+FROM test1.t2
+WHERE TIMESTAMP_MICROS(user_first_touch_timestamp)>= min_date
+;
+
+-- Analysing set we found out that there are 2956 persons who signed up and was active in the same day during testing period from 2018-06-12.
+-- Also we have 4449 users where field user_first_touch_timestamp >event_timestamp. I think this issue happens because of defference of timezones,
+-- there are no users where fields differ more then 1 day. We will count them as if users who sign up and made some activities at the same day.
+
+
+SELECT 
+           COUNT(DISTINCT(user_pseudo_id))
+FROM test1.t2
+WHERE DATE_DIFF(DATE(TIMESTAMP_MICROS(user_first_touch_timestamp)), DATE(TIMESTAMP_MICROS(event_timestamp)), DAY)>1 AND 
+             TIMESTAMP_MICROS(user_first_touch_timestamp)>= min_date
+;
+
+
+*/
+
+DECLARE min_date TIMESTAMP DEFAULT '2018-06-12 07:00:10 UTC'; 
+
+-- Find all active users who was signed up after first set`s date
+WITH data_set AS(
+SELECT 
+      TIMESTAMP_MICROS(user_first_touch_timestamp) as signup_week,
+      TIMESTAMP_MICROS(event_timestamp) as event_week,
+      date_week,
+      DENSE_RANK()OVER(ORDER BY date_week ASC) as week_cohort,
+      user_pseudo_id
+FROM test1.t2
+WHERE TIMESTAMP_MICROS(user_first_touch_timestamp)>= min_date
+ORDER BY 1,2
+),
+
+-- Make set with sign up users, 6068
+cohort_items as(
+      SELECT user_pseudo_id,
+            signup_week,
+            TIMESTAMP_TRUNC(signup_week,WEEK) as cohort_week
+      FROM data_set
+      GROUP BY 1,2
+),
+
+--Make activity set, excluding sign up days, 998264
+activity AS( 
+SELECT
+            user_pseudo_id,
+            event_week,
+            date_week,
+            week_cohort
+FROM data_set
+WHERE DATE_DIFF(DATE(event_week),DATE(signup_week),DAY)>1
+ORDER BY event_week
+),
+
+--Find set active_users activity given on week , sined up this period, 5667 users
+user_activity as(
+SELECT
+      a.user_pseudo_id,
+      DATE_DIFF(DATE(a.event_week),DATE(c.signup_week),WEEK) as week_number     
+FROM cohort_items c
+LEFT JOIN activity a
+ON c.user_pseudo_id=a.user_pseudo_id
+
+GROUP BY 1,2 
+
+)
+,
+--5806 users in 17 weeks
+cohort_size as(
+SELECT 
+      cohort_week,
+      COUNT(user_pseudo_id) num_users
+FROM cohort_items
+GROUP BY cohort_week
+ORDER BY 1
+)
+,
+
+
+retention_table AS(
+  SELECT
+        s.cohort_week,
+        a.week_number,
+        COUNT(1) as user_n
+  FROM  user_activity a
+  LEFT JOIN cohort_items s
+  ON s.user_pseudo_id=a.user_pseudo_id
+  GROUP BY 1,2
+ 
+)
+--Assembling table
+SELECT
+      r.cohort_week as cohort_week,
+      s.num_users as cohort_size,
+      r.week_number as week,
+      ROUND((r.user_n)*100/s.num_users,2) as percentage,
+FROM retention_table r
+LEFT JOIN cohort_size s
+ON r.cohort_week=s.cohort_week
+WHERE r.cohort_week IS NOT NULL
+ORDER BY 1,3
+
+;
