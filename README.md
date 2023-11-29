@@ -14,5 +14,6 @@ In definition folder there are three files
  2.The second visualisation built in Tableau
   https://public.tableau.com/app/profile/irina8030/viz/DAUMAUver2/Dashboard1
 3.To analyse cohort
-  https://public.tableau.com/app/profile/irina8030/viz/AquisitioncohortanalysisFirebase/Aquisitioncohortanalysis
+  https://public.tableau.com/app/profile/irina8030/viz/AquisitioncohortanalysisFirebase/Aquisitioncohortanalysis OR
+https://public.tableau.com/views/AquisitioncohortanalysisFirebase/Aquisitioncohortanalysis?:language=en-US&:display_count=n&:origin=viz_share_link
   
